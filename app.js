@@ -78,7 +78,7 @@ $$('.social-action').forEach((button) => {
   });
 });
 
-const panelTitles = { overview: '总览', model: '本体建模', agents: '本体智能体', reports: '智能报告', knowledge: '企业知识' };
+const panelTitles = { overview: '总览', model: '本体建模', charts: '图表工作台', agents: '本体智能体', reports: '智能报告', knowledge: '企业知识' };
 $$('.nav-item').forEach((button) => {
   button.addEventListener('click', () => {
     const panel = button.dataset.panel;
@@ -273,7 +273,8 @@ const sendAgentMessage = () => {
   window.setTimeout(() => {
     const aiMessage = document.createElement('div');
     aiMessage.className = 'agent-message agent-message-ai';
-    aiMessage.innerHTML = `<span class="chat-avatar">${data.icon}</span><div><small>${data.name} · 已完成</small><p>${data.response}</p><div class="agent-result">${data.result.map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('')}</div></div>`;
+    aiMessage.innerHTML = `<span class="chat-avatar">${data.icon}</span><div><small>${data.name} · 已完成</small><p>${data.response}</p><div class="agent-result">${data.result.map(([value, label]) => `<div><strong>${value}</strong><span>${label}</span></div>`).join('')}</div><div class="agent-output-actions"><button class="agent-add-chart" type="button"><span aria-hidden="true">▥</span> 图表工作台</button><span>将本次输出与指标添加到工作台</span></div></div>`;
+    aiMessage.querySelector('.agent-add-chart').addEventListener('click', () => addAgentResultToChart({ agent: data.name, prompt, response: data.response, result: data.result }));
     chat.appendChild(aiMessage);
     chat.scrollTop = chat.scrollHeight;
     toast(`${data.name} 已完成语义分析`);
@@ -291,3 +292,115 @@ window.addEventListener('keydown', (event) => {
   if (event.key === 'Escape' && agentModal.classList.contains('open')) closeAgentDemo();
 });
 bindSuggestions();
+
+// 图表工作台：以本地样例数据演示配置、绘制、保存和导出流程。
+const chartDatasets = {
+  sales: { title: '月度合同金额趋势', subtitle: '按月份汇总 · 最近 6 个月', categories: ['4月', '5月', '6月', '7月', '8月', '9月'], values: [42, 58, 49, 72, 86, 100], kpi: '¥ 2,486,300' },
+  project: { title: '项目交付完成率', subtitle: '按月份汇总 · 最近 6 个月', categories: ['4月', '5月', '6月', '7月', '8月', '9月'], values: [54, 61, 57, 74, 81, 93], kpi: '93.4%' },
+  customer: { title: '客户健康度分布', subtitle: '按月份汇总 · 最近 6 个月', categories: ['4月', '5月', '6月', '7月', '8月', '9月'], values: [66, 72, 68, 79, 87, 96], kpi: '86.2 分' }
+};
+let activeChartType = 'bar';
+const chartSvg = (type, values, labels) => {
+  const w = 720, h = 224, left = 42, right = 16, top = 14, bottom = 33;
+  const innerW = w - left - right, innerH = h - top - bottom;
+  const grid = [0, 25, 50, 75, 100].map((v) => `<line x1="${left}" y1="${top + innerH * (1 - v / 100)}" x2="${w-right}" y2="${top + innerH * (1-v/100)}" stroke="#edf0f5"/><text x="${left-10}" y="${top + innerH * (1-v/100) + 3}" text-anchor="end" fill="#a6aab5" font-size="9">${v}</text>`).join('');
+  const xs = values.map((_, i) => left + innerW * (i + .5) / values.length);
+  const tick = labels.map((label, i) => `<text x="${xs[i]}" y="${h-8}" text-anchor="middle" fill="#9297a4" font-size="10">${label}</text>`).join('');
+  if (type === 'number') return `<div class="chart-number-view"><span>当前指标</span><strong>${chartDatasets[$('#chartDataset').value].kpi}</strong><small>较上期 <b>↗ 12.8%</b></small></div>`;
+  if (type === 'pie') {
+    const colors = ['#7568cd','#a49ae8','#c5bdf3','#e3e0fa']; let offset = 0;
+    const parts = [42, 28, 19, 11].map((value, i) => { const part = `<circle cx="110" cy="110" r="72" fill="none" stroke="${colors[i]}" stroke-width="24" stroke-dasharray="${value*4.52} ${452-value*4.52}" stroke-dashoffset="-${offset*4.52}" transform="rotate(-90 110 110)"/>`; offset += value; return part; }).join('');
+    return `<div class="donut-chart"><svg viewBox="0 0 220 220">${parts}<text x="110" y="105" text-anchor="middle" fill="#303443" font-size="23" font-weight="700">186</text><text x="110" y="128" text-anchor="middle" fill="#979ca9" font-size="10">成交客户</text></svg><div class="donut-legend"><span><i style="background:#7568cd"></i>华东 <b>42%</b></span><span><i style="background:#a49ae8"></i>华南 <b>28%</b></span><span><i style="background:#c5bdf3"></i>华北 <b>19%</b></span><span><i style="background:#e3e0fa"></i>其他 <b>11%</b></span></div></div>`;
+  }
+  if (type === 'line') {
+    const points = values.map((v,i)=>`${xs[i]},${top+innerH*(1-v/110)}`).join(' ');
+    return `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${grid}<polyline points="${points}" fill="none" stroke="#7669d2" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>${values.map((v,i)=>`<circle cx="${xs[i]}" cy="${top+innerH*(1-v/110)}" r="4" fill="#fff" stroke="#7669d2" stroke-width="2"/>`).join('')}${tick}</svg>`;
+  }
+  const bars = values.map((v,i)=>{const bw=38, bh=innerH*v/110;return `<rect x="${xs[i]-bw/2}" y="${top+innerH-bh}" width="${bw}" height="${bh}" rx="5" fill="${i===values.length-1?'#6d60c5':'#c5c0eb'}"><title>${labels[i]}：${v}</title></rect>`;}).join('');
+  return `<svg class="chart-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">${grid}${bars}${tick}</svg>`;
+};
+const renderChart = () => {
+  const data = chartDatasets[$('#chartDataset').value];
+  const dimension = $('#chartDimension').value, metric = $('#chartMetric').value;
+  $('#chartTitle').textContent = activeChartType === 'pie' ? '区域成交客户占比' : activeChartType === 'number' ? metric : data.title;
+  $('#chartSubtitle').textContent = activeChartType === 'pie' ? '按区域汇总 · 本季度' : `${dimension}汇总 · 最近 6 个月`;
+  $('#chartKpi').textContent = data.kpi;
+  $('#visualChart').innerHTML = chartSvg(activeChartType, data.values, data.categories);
+  $$('.chart-type').forEach((button) => button.classList.toggle('active', button.dataset.type === activeChartType));
+};
+const agentChartStorageKey = 'kk-owl-agent-chart-results';
+const addAgentResultCard = (item, persist = true) => {
+  const area = $('.chart-board-area');
+  if (!area) return;
+  const card = document.createElement('section');
+  card.className = 'chart-canvas module-card agent-chart-result-card';
+  const head = document.createElement('div'); head.className = 'chart-card-head';
+  const titleWrap = document.createElement('div');
+  const title = document.createElement('strong'); title.textContent = `${item.agent} · 对话洞察`;
+  const subtitle = document.createElement('span'); subtitle.textContent = `来自智能体对话：${item.prompt}`;
+  titleWrap.append(title, subtitle);
+  const remove = document.createElement('button'); remove.className = 'remove-added-chart'; remove.type = 'button'; remove.setAttribute('aria-label', '移除对话洞察'); remove.textContent = '×';
+  head.append(titleWrap, remove);
+  const response = document.createElement('p'); response.className = 'agent-chart-response'; response.textContent = item.response;
+  const metrics = document.createElement('div'); metrics.className = 'agent-chart-metrics';
+  item.result.forEach(([value, label], index) => {
+    const metric = document.createElement('div'); metric.className = 'agent-chart-metric';
+    const number = document.createElement('strong'); number.textContent = value;
+    const caption = document.createElement('span'); caption.textContent = label;
+    const track = document.createElement('i'); track.style.setProperty('--metric-level', `${Math.max(18, 92 - index * 22)}%`);
+    metric.append(number, caption, track); metrics.append(metric);
+  });
+  const source = document.createElement('small'); source.className = 'agent-chart-source'; source.textContent = '来源：智能体对话结果 · 本体语义上下文';
+  card.append(head, response, metrics, source);
+  area.insertBefore(card, $('.chart-insight'));
+  remove.addEventListener('click', () => {
+    card.remove();
+    const saved = JSON.parse(localStorage.getItem(agentChartStorageKey) || '[]').filter((savedItem) => savedItem.id !== item.id);
+    localStorage.setItem(agentChartStorageKey, JSON.stringify(saved));
+    toast('已从图表工作台移除');
+  });
+  if (persist) {
+    const saved = JSON.parse(localStorage.getItem(agentChartStorageKey) || '[]');
+    saved.push(item);
+    localStorage.setItem(agentChartStorageKey, JSON.stringify(saved));
+  }
+};
+const addAgentResultToChart = (item) => {
+  item.id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  addAgentResultCard(item);
+  closeAgentDemo();
+  $('.nav-item[data-panel="charts"]').click();
+  toast('已将智能体输出与指标添加到图表工作台');
+};
+if ($('#chartDataset')) {
+  $('#chartDataset').addEventListener('change', renderChart);
+  $('#chartDimension').addEventListener('change', renderChart);
+  $('#chartMetric').addEventListener('change', renderChart);
+  $$('.chart-type').forEach((button) => button.addEventListener('click', () => { activeChartType = button.dataset.type; renderChart(); }));
+  renderChart();
+  JSON.parse(localStorage.getItem(agentChartStorageKey) || '[]').forEach((item) => addAgentResultCard(item, false));
+  $('#saveChartBoard').addEventListener('click', () => {
+    const config = { dataset: $('#chartDataset').value, dimension: $('#chartDimension').value, metric: $('#chartMetric').value, type: activeChartType, savedAt: new Date().toISOString() };
+    localStorage.setItem('kk-owl-chart-board', JSON.stringify(config));
+    toast('工作台配置已保存在当前浏览器');
+  });
+  $('#addChart').addEventListener('click', () => {
+    const area = $('.chart-board-area');
+    const card = document.createElement('section'); card.className = 'chart-canvas module-card added-chart';
+    card.innerHTML = `<div class="chart-card-head"><div><strong>新建可视化</strong><span>从当前数据集中选择图表类型</span></div><button class="remove-added-chart" aria-label="移除图表">×</button></div><div class="added-chart-placeholder"><span>▥</span><p>已添加一个图表卡片</p><button class="configure-added-chart">使用当前配置</button></div>`;
+    area.insertBefore(card, $('.chart-insight'));
+    card.querySelector('.remove-added-chart').addEventListener('click', () => card.remove());
+    card.querySelector('.configure-added-chart').addEventListener('click', () => { card.querySelector('.added-chart-placeholder').outerHTML = `<div class="visual-chart">${chartSvg(activeChartType, chartDatasets[$('#chartDataset').value].values, chartDatasets[$('#chartDataset').value].categories)}</div>`; toast('已应用当前图表配置'); });
+    toast('已添加图表卡片');
+  });
+  $('#chartFilter').addEventListener('click', (event) => { const current = event.currentTarget.querySelector('span'); current.textContent = current.textContent === '全部区域' ? '华东区域 ×' : '全部区域'; toast(`语义筛选：${current.textContent}`); });
+  $('#chartRefresh').addEventListener('click', () => { renderChart(); toast('图表数据已刷新'); });
+  $('#chartExport').addEventListener('click', () => {
+    const data = chartDatasets[$('#chartDataset').value];
+    const csv = '\ufeff维度,指标\n' + data.categories.map((label, i) => `${label},${data.values[i]}`).join('\n');
+    const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' })); link.download = '销售经营分析.csv'; link.click(); URL.revokeObjectURL(link.href); toast('CSV 数据已导出');
+  });
+  $('#chartShare').addEventListener('click', async () => { try { await navigator.clipboard.writeText(location.href); toast('工作台链接已复制'); } catch { toast('工作台链接已准备分享'); } });
+  $('#chartInsightDetails').addEventListener('click', () => toast('已定位华东区域的客户与合同归因'));
+  $('#chartMore').addEventListener('click', () => toast('图表操作：复制、重命名或移除'));
+}
